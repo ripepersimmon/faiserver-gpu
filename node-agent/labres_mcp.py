@@ -34,7 +34,7 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta, timezone
 
-VERSION = "1.0.0"
+VERSION = "1.0.1"
 KST = timezone(timedelta(hours=9))
 DEFAULT_URL = "https://faiserver.hufs.ac.kr"
 TOKEN_FILE = os.path.expanduser("~/.config/labres/token")
@@ -144,10 +144,16 @@ def read_token() -> str:
 class Api:
     def __init__(self, base: str | None = None, token: str | None = None):
         self.base = (base or os.environ.get("LABRES_URL") or DEFAULT_URL).rstrip("/")
-        self.token = token if token is not None else read_token()
+        self._token = token   # None = 매 호출마다 env/파일에서 읽는다
+
+    @property
+    def token(self) -> str:
+        # 서버(MCP)가 떠 있는 동안 저장·교체한 토큰도 재시작 없이 바로 쓰도록 매번 읽는다(파일 하나라 싸다).
+        return self._token if self._token is not None else read_token()
 
     def call(self, method: str, path: str, body=None, query: dict | None = None):
-        if not self.token:
+        token = self.token
+        if not token:
             raise ToolError(
                 "API 토큰이 없습니다. %s/tokens 에서 발급한 뒤 터미널에서 저장하세요 — GPU 서버: "
                 "`labres-mcp --save-token`, 그 밖의 컴퓨터: `mkdir -p ~/.config/labres && "
@@ -158,7 +164,7 @@ class Api:
             url += "?" + urllib.parse.urlencode(query)
         data = json.dumps(body).encode("utf-8") if body is not None else None
         req = urllib.request.Request(url, data=data, method=method, headers={
-            "Authorization": "Bearer " + self.token,
+            "Authorization": "Bearer " + token,
             "Content-Type": "application/json",
             "Accept": "application/json",
             "User-Agent": "labres-mcp/" + VERSION,

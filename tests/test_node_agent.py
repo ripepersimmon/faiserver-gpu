@@ -393,3 +393,13 @@ def test_agent_hook_events(tmp_path, monkeypatch, capsys):
     assert "GPU 3" in _hook(monkeypatch, capsys, "PostToolUse", {"session_id": "s1"})  # 내용 바뀌면 즉시
     os.utime(tmp_path / (me + ".warn"), (0, 0))   # 에이전트 멈춤(갱신 없음) → 옛 경고 무시
     assert _hook(monkeypatch, capsys, "UserPromptSubmit") == ""
+
+
+def test_mcp_reads_token_saved_after_start(tmp_path, monkeypatch):
+    """MCP 가 뜬 뒤에 저장한 토큰도 재시작 없이 쓴다(1.0.0 은 시작 때 한 번만 읽어 '토큰 없음'이 계속됐다)."""
+    monkeypatch.delenv("LABRES_TOKEN", raising=False)
+    monkeypatch.setattr(mcp, "TOKEN_FILE", str(tmp_path / "token"))
+    api = mcp.Api(base="https://portal.example")
+    assert api.token == ""
+    (tmp_path / "token").write_text("lrt_saved_later\n")
+    assert api.token == "lrt_saved_later"

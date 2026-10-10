@@ -34,4 +34,4 @@ description: HUFS Finance & AI GPU 서버(faiserver.hufs.ac.kr 예약제) 에서
 2. 터미널에서 저장:
    - GPU 서버: `labres-mcp --save-token` 실행 후 붙여넣기
    - 그 밖의 컴퓨터: `mkdir -p ~/.config/labres && (umask 077; cat > ~/.config/labres/token)` 실행 → 붙여넣고 Enter, Ctrl-D
-3. Claude Code 를 다시 시작하거나 `/mcp` 에서 labres 를 재연결한다.
+3. 저장하면 바로 반영된다(재시작 불필요). 사용자가 저장했다고 하면 도구를 다시 호출한다.
