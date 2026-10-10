@@ -499,7 +499,10 @@ TOOLS = [
             "gpu_indices": {"type": "array", "items": {"type": "integer", "minimum": 0},
                             "description": "예약할 GPU 번호들. 생략하면 자동 선택"},
             "count": {"type": "integer", "minimum": 1, "description": "자동 선택 시 GPU 개수(기본 1)"},
-            "purpose": {"type": "string", "description": "사용 목적(선택)"},
+            "purpose": {"type": "string", "description": "예약 목적(선택). 사용자가 속한 전체 프로젝트명 하나만 짧게 "
+                                                          "(예: '금융 시계열 예측'). 지금 돌리는 개별 실험·모델·스크립트·하이퍼파라미터는 "
+                                                          "쓰지 말 것 — 다른 사용자와 관리자에게 그대로 보인다. "
+                                                          "프로젝트명을 모르면 추측하지 말고 생략하거나 사용자에게 물어볼 것"},
             "allow_additional": {"type": "boolean", "description": "같은 시간대 내 예약이 있어도 추가로 만들기(기본 false)"},
         }},
         "annotations": {"title": "GPU 예약", "readOnlyHint": False, "destructiveHint": False},

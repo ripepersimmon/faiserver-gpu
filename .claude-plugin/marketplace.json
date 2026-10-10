@@ -9,7 +9,7 @@
       "name": "faiserver-gpu",
       "source": "./",
       "description": "GPU 예약 조회·생성·연장·반납 MCP + 예약 규칙 스킬",
-      "version": "1.0.3",
+      "version": "1.0.4",
       "category": "productivity"
     }
   ]
