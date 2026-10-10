@@ -1,0 +1,10 @@
+[Unit]
+Description=GPU 예약 경고 에이전트 (예약 ↔ 실제 GPU 사용자 대조)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/labres-gpu-warn
+TimeoutStartSec=50
+Nice=10

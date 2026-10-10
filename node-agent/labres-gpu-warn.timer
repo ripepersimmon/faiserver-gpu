@@ -1,0 +1,10 @@
+[Unit]
+Description=GPU 예약 경고 에이전트 1분 주기
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=1min
+AccuracySec=5s
+
+[Install]
+WantedBy=timers.target

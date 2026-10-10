@@ -1,0 +1,14 @@
+# /etc/labres/agent.conf — labres-gpu-warn 설정 (root 600). install.sh 가 만든다.
+LABRES_URL=https://faiserver.hufs.ac.kr
+# 웹앱 .env 의 NODE_AGENT_TOKEN 과 같은 값
+AGENT_TOKEN=
+# 예약 시스템의 서버 이름(NODE_GPU_COUNTS 의 이름). 비우면 호스트명
+NODE_NAME=
+# 같은 경고를 터미널에 다시 띄우는 간격(분)
+REPEAT_MINUTES=30
+# 내 예약 종료 몇 분 전에 안내할지
+ENDING_MINUTES=10
+# 남의 예약이 몇 분 안에 시작되면 미리 경고할지
+UPCOMING_MINUTES=30
+# 0 이면 터미널에 쓰지 않고 파일(로그인·코딩 에이전트용)만
+TTY_WARN=1
