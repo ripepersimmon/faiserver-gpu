@@ -55,7 +55,7 @@ command = "labres-mcp"
 
 ```bash
 git clone https://github.com/ripepersimmon/faiserver-gpu.git
-cd faiserver-gpu && git -c advice.detachedHead=false checkout v1.0.2   # 검토된 태그를 고정해서 설치 (main 을 그대로 쓰지 않음)
+cd faiserver-gpu && git -c advice.detachedHead=false checkout v1.0.3   # 검토된 태그를 고정해서 설치 (main 을 그대로 쓰지 않음)
 sudo bash node-agent/install.sh          # 예약 웹앱의 NODE_AGENT_TOKEN 을 숨김 입력으로 묻습니다
 # 호스트명이 예약 시스템 서버 이름과 다르면: sudo NODE_NAME=<서버이름> bash ...
 ```

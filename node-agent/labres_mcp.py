@@ -34,7 +34,7 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta, timezone
 
-VERSION = "1.0.2"
+VERSION = "1.0.3"
 KST = timezone(timedelta(hours=9))
 DEFAULT_URL = "https://faiserver.hufs.ac.kr"
 TOKEN_FILE = os.path.expanduser("~/.config/labres/token")

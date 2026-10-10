@@ -36,14 +36,36 @@ PY=${PYTHON3:-/usr/bin/python3}
   || { echo "$PY 는 root 소유·그룹/타인 쓰기 불가여야 합니다." >&2; exit 1; }
 "$PY" -c 'import sys; sys.exit(sys.version_info < (3, 7))' || { echo "python3 3.7 이상이 필요합니다." >&2; exit 1; }
 
-# 설치 원본(이 디렉터리)은 root 또는 sudo 를 실행한 관리자 소유여야 하고, 남이 쓸 수 있는 파일이 하나도 없어야
-# 한다 — 다른 사용자가 고쳐 둔 스크립트를 root 로 실행하는 일을 막는다. 공개 저장소에서 받았다면 설치 전
-# 검토한 태그를 체크아웃할 것(README).
-_owner_ok() { local u; u=$(stat -c %u "$1"); [ "$u" -eq 0 ] || [ "$u" = "${SUDO_UID:-0}" ]; }
-for f in "$HERE" "$HERE"/*; do
-  _owner_ok "$f" || { echo "$f 의 소유자가 root/관리자가 아닙니다 — 번들을 root 소유 디렉터리로 복사해 설치하세요." >&2; exit 1; }
-done
-[ -z "$(find "$HERE" -perm /022 -print -quit)" ] || { echo "$HERE 에 그룹/타인이 쓸 수 있는 파일이 있습니다: chmod -R go-w" >&2; exit 1; }
+# 설치 원본(이 디렉터리)은 root 또는 sudo 를 실행한 관리자 소유여야 하고, 다른 사람이 쓸 수 있는 파일이 없어야
+# 한다 — 다른 사용자가 고쳐 둔 스크립트를 root 로 실행하는 일을 막는다. umask 002 환경의 git clone 은 파일이
+# 그룹 쓰기 가능(664)으로 생기는데, 그 그룹이 소유자 전용 그룹(다른 멤버 없음)이면 남이 못 쓰므로 허용한다.
+# 공개 저장소에서 받았다면 설치 전 검토한 태그를 체크아웃할 것(README).
+"$PY" - "$HERE" "${SUDO_UID:-0}" <<'PY' || { echo "번들을 root 소유 디렉터리로 복사하거나 chmod -R go-w 후 다시 실행하세요." >&2; exit 1; }
+import grp, os, pwd, sys
+root, admin_uid = sys.argv[1], int(sys.argv[2])
+
+def private_group(gid, uid):
+    try:
+        g, o = grp.getgrgid(gid), pwd.getpwuid(uid)
+    except KeyError:
+        return False
+    return g.gr_name == o.pw_name and not [m for m in g.gr_mem if m != o.pw_name] \
+        and not [p for p in pwd.getpwall() if p.pw_gid == gid and p.pw_uid != uid]
+
+bad = []
+for d, _dirs, files in os.walk(root):
+    for path in [d] + [os.path.join(d, f) for f in files]:
+        st = os.lstat(path)
+        if st.st_uid not in (0, admin_uid):
+            bad.append("%s: 소유자가 root/관리자가 아님" % path)
+        elif st.st_mode & 0o002:
+            bad.append("%s: 타인 쓰기 가능" % path)
+        elif st.st_mode & 0o020 and not private_group(st.st_gid, st.st_uid):
+            bad.append("%s: 공용 그룹이 쓰기 가능" % path)
+for b in bad:
+    print(b, file=sys.stderr)
+sys.exit(1 if bad else 0)
+PY
 
 # 파이썬 도구는 여기서 검증한 인터프리터로 고정하고 -I 로 실행한다. 사용자 PATH 의 python3(pyenv·conda·
 # 깨진 venv)나 PYTHONPATH 가 끼어들면 훅이 실패하거나 MCP 가 문법 오류로 죽기 때문이다.
