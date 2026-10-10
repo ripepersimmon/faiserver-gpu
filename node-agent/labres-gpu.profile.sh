@@ -12,11 +12,11 @@ _labres_fresh() { [ -f "$1" ] && [ -n "$(find "$1" -mmin -3 2>/dev/null)" ]; }
 case $- in
   *i*)
     _labres_fresh "$_labres_d/status.txt" && cat "$_labres_d/status.txt"
-    _labres_fresh "$_labres_d/user/$_labres_u.info" && cat "$_labres_d/user/$_labres_u.info"
-    _labres_fresh "$_labres_d/user/$_labres_u.warn" && cat "$_labres_d/user/$_labres_u.warn"
+    _labres_fresh "$_labres_d/user/$_labres_u/info" && cat "$_labres_d/user/$_labres_u/info"
+    _labres_fresh "$_labres_d/user/$_labres_u/warn" && cat "$_labres_d/user/$_labres_u/warn"
     ;;
   *)
-    _labres_fresh "$_labres_d/user/$_labres_u.warn" && cat "$_labres_d/user/$_labres_u.warn" >&2
+    _labres_fresh "$_labres_d/user/$_labres_u/warn" && cat "$_labres_d/user/$_labres_u/warn" >&2
     ;;
 esac
 unset _labres_d _labres_u

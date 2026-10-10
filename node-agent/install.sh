@@ -28,8 +28,22 @@ CONF=$ETC/agent.conf
 CC=/etc/claude-code
 STAMP=$(date +%Y%m%d)
 
-PY=$(command -v python3) || { echo "python3 가 필요합니다." >&2; exit 1; }
+# root 에이전트의 인터프리터는 배포판 python3 로 고정한다. root 의 PATH 에 conda/pyenv 가 먼저 잡히면
+# 그 인터프리터 소유자가 60초마다 root 로 코드를 돌릴 수 있기 때문이다. 소유자 root·남이 못 쓰는 파일인지도 본다.
+PY=${PYTHON3:-/usr/bin/python3}
+[ -x "$PY" ] || { echo "$PY 가 없습니다(PYTHON3=/경로 로 지정)." >&2; exit 1; }
+[ "$(stat -Lc %u "$PY")" -eq 0 ] && [ -z "$(find -L "$PY" -maxdepth 0 -perm /022)" ] \
+  || { echo "$PY 는 root 소유·그룹/타인 쓰기 불가여야 합니다." >&2; exit 1; }
 "$PY" -c 'import sys; sys.exit(sys.version_info < (3, 7))' || { echo "python3 3.7 이상이 필요합니다." >&2; exit 1; }
+
+# 설치 원본(이 디렉터리)은 root 또는 sudo 를 실행한 관리자 소유여야 하고, 남이 쓸 수 있는 파일이 하나도 없어야
+# 한다 — 다른 사용자가 고쳐 둔 스크립트를 root 로 실행하는 일을 막는다. 공개 저장소에서 받았다면 설치 전
+# 검토한 태그를 체크아웃할 것(README).
+_owner_ok() { local u; u=$(stat -c %u "$1"); [ "$u" -eq 0 ] || [ "$u" = "${SUDO_UID:-0}" ]; }
+for f in "$HERE" "$HERE"/*; do
+  _owner_ok "$f" || { echo "$f 의 소유자가 root/관리자가 아닙니다 — 번들을 root 소유 디렉터리로 복사해 설치하세요." >&2; exit 1; }
+done
+[ -z "$(find "$HERE" -perm /022 -print -quit)" ] || { echo "$HERE 에 그룹/타인이 쓸 수 있는 파일이 있습니다: chmod -R go-w" >&2; exit 1; }
 
 # 파이썬 도구는 여기서 검증한 인터프리터로 고정하고 -I 로 실행한다. 사용자 PATH 의 python3(pyenv·conda·
 # 깨진 venv)나 PYTHONPATH 가 끼어들면 훅이 실패하거나 MCP 가 문법 오류로 죽기 때문이다.
@@ -131,7 +145,7 @@ if [ -z "${AGENT_TOKEN:-}" ] && ! grep -qE '^AGENT_TOKEN=.+' "$CONF"; then
   if [ -t 0 ]; then
     read -rsp "NODE_AGENT_TOKEN (fai003 .env 의 값): " AGENT_TOKEN; echo
   fi
-  [ -n "${AGENT_TOKEN:-}" ] || { echo "AGENT_TOKEN 이 필요합니다(sudo AGENT_TOKEN=... bash $0)." >&2; exit 1; }
+  [ -n "${AGENT_TOKEN:-}" ] || { echo "AGENT_TOKEN 이 필요합니다 — 터미널에서 다시 실행해 숨김 입력으로 넣으세요(명령줄에 적으면 ps·히스토리에 남습니다)." >&2; exit 1; }
 fi
 export AGENT_TOKEN="${AGENT_TOKEN:-}"   # read 로 받은 값도 아래 python 이 보게
 "$PY" - "$CONF" <<'PY'
@@ -157,6 +171,7 @@ install -m 644 "$HERE/labres-gpu-warn.service" /etc/systemd/system/labres-gpu-wa
 install -m 644 "$HERE/labres-gpu-warn.timer"   /etc/systemd/system/labres-gpu-warn.timer
 systemctl daemon-reload
 systemctl enable --now labres-gpu-warn.timer
+rm -rf /run/labres-gpu-warn/user   # 구버전(1.0.x) 평면 배치 정리 — 새 배치(user/<u>/warn)는 첫 실행이 만든다
 
 # 4) 로그인 배너 + 로그인 셸 경고, 5) Claude Code 훅·규칙
 install -m 644 "$HERE/labres-gpu.profile.sh" /etc/profile.d/labres-gpu.sh
@@ -169,3 +184,9 @@ if ! "$BIN/labres-gpu-warn" --dry-run; then
   echo "  고친 뒤 이 스크립트를 다시 실행하세요. (sudo labres-gpu-warn --dry-run / journalctl -u labres-gpu-warn)" >&2
   exit 1
 fi
+# 실제 서비스(샌드박스 적용)로도 한 번 돌려 본다 — ProtectSystem 등 때문에 못 쓰는 경로가 있으면 여기서 드러난다.
+if ! systemctl start labres-gpu-warn.service; then
+  echo "⚠ systemd 서비스 실행 실패 — journalctl -u labres-gpu-warn -n 30 으로 확인하세요." >&2
+  exit 1
+fi
+echo "서비스 실행 확인: $(ls /run/labres-gpu-warn/status.txt 2>/dev/null || echo '현황 파일 없음(?)')"

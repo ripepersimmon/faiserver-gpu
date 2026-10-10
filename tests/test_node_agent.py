@@ -84,7 +84,7 @@ def test_classify_core_kinds():
     assert "딥러닝 수업 중" in r["warnings"]["dave"][0]["text"]
     assert "PID 100 'python' (4.0GiB)" in r["warnings"]["bob"][0]["text"]
     assert r["free_now"] == []          # 0: 프로세스 있음, 1: 예약, 2: 사용 중, 3: 차단
-    assert r["status"][3].startswith("  GPU3  차단: 딥러닝 수업 중")
+    assert r["status"][3].startswith('  GPU3  차단: "딥러닝 수업 중"')
     assert "예약됨" in r["status"][1] and "사용 중" in r["status"][1]
     assert all("alice" not in line and "bob" not in line for line in r["status"])   # 현황엔 이름 없음
 
@@ -205,9 +205,16 @@ def test_run_writes_files_and_tty_with_repeat_suppression(tmp_path, monkeypatch)
     out = os.read(master, 65536).decode("utf-8")
     assert "[GPU 예약 경고] fai001" in out and "GPU 2: 예약 없이 사용 중" in out and "\r\n" in out
     udir = tmp_path / "run" / "user"
-    assert (udir / (me.pw_name + ".warn")).read_text().startswith("[GPU 예약 경고]")
-    assert "15:00~16:00" in (udir / (me.pw_name + ".info")).read_text()
-    assert oct((udir / (me.pw_name + ".warn")).stat().st_mode & 0o777) == "0o600"
+    mine = udir / me.pw_name
+    assert (mine / "warn").read_text().startswith("[GPU 예약 경고]")
+    assert "15:00~16:00" in (mine / "info").read_text()
+    upg = warn.private_group(me, warn.human_users(1000))
+    assert oct((mine / "warn").stat().st_mode & 0o777) == ("0o640" if upg else "0o600")
+    assert oct(mine.stat().st_mode & 0o777) == ("0o750" if upg else "0o711")
+    assert oct(udir.stat().st_mode & 0o777) == "0o711"
+    # 사람 계정 전부에 디렉터리가 미리 있고(존재 = 정보 아님), 내용 없는 사용자는 파일이 없다
+    others = [pw.pw_name for pw in warn.human_users(1000) if pw.pw_name != me.pw_name]
+    assert all((udir / u).is_dir() and not (udir / u / "warn").exists() for u in others)
     assert "GPU0  예약 없음 · 다음 예약 15:00" in (tmp_path / "run" / "status.txt").read_text()
 
     # 같은 경고는 REPEAT_MINUTES 안에 다시 쓰지 않는다
@@ -222,7 +229,7 @@ def test_run_writes_files_and_tty_with_repeat_suppression(tmp_path, monkeypatch)
     # 경고가 사라지면 .warn 도 지운다
     monkeypatch.setattr(warn, "collect_gpu_procs", lambda: {"procs": [], "util": {}, "alive": [0, 1, 2, 3]})
     assert warn.run(cfg) == 0
-    assert not (udir / (me.pw_name + ".warn")).exists()
+    assert not (mine / "warn").exists()
     os.close(master)
     os.close(slave)
 
@@ -380,18 +387,19 @@ def test_agent_hook_events(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(hook, "USER_DIR", str(tmp_path))
     monkeypatch.setattr(hook, "STATE_FILE", str(tmp_path / "state.json"))
     assert _hook(monkeypatch, capsys, "UserPromptSubmit") == ""          # 경고 없음 → 조용
-    (tmp_path / (me + ".info")).write_text("내 예약(fai001): ...\n")
+    (tmp_path / me).mkdir()
+    (tmp_path / me / "info").write_text("내 예약(fai001): ...\n")
     assert "내 예약" in _hook(monkeypatch, capsys, "SessionStart")
-    (tmp_path / (me + ".warn")).write_text("[GPU 예약 경고] fai001\n⚠ GPU 2: 예약 없이 사용 중\n")
+    (tmp_path / me / "warn").write_text("[GPU 예약 경고] fai001\n⚠ GPU 2: 예약 없이 사용 중\n")
     assert "[GPU 예약 경고]" in _hook(monkeypatch, capsys, "UserPromptSubmit")
     out = json.loads(_hook(monkeypatch, capsys, "PostToolUse", {"session_id": "s1"}))
     assert out["hookSpecificOutput"]["hookEventName"] == "PostToolUse"
     assert "GPU 2" in out["hookSpecificOutput"]["additionalContext"]
     assert _hook(monkeypatch, capsys, "PostToolUse", {"session_id": "s1"}) == ""   # 같은 경고 반복 억제
     assert _hook(monkeypatch, capsys, "PostToolUse", {"session_id": "s2"}) != ""   # 다른 세션은 따로
-    (tmp_path / (me + ".warn")).write_text("[GPU 예약 경고] fai001\n⚠ GPU 3: 다른 사용자가 예약한 GPU\n")
+    (tmp_path / me / "warn").write_text("[GPU 예약 경고] fai001\n⚠ GPU 3: 다른 사용자가 예약한 GPU\n")
     assert "GPU 3" in _hook(monkeypatch, capsys, "PostToolUse", {"session_id": "s1"})  # 내용 바뀌면 즉시
-    os.utime(tmp_path / (me + ".warn"), (0, 0))   # 에이전트 멈춤(갱신 없음) → 옛 경고 무시
+    os.utime(tmp_path / me / "warn", (0, 0))   # 에이전트 멈춤(갱신 없음) → 옛 경고 무시
     assert _hook(monkeypatch, capsys, "UserPromptSubmit") == ""
 
 
@@ -402,4 +410,113 @@ def test_mcp_reads_token_saved_after_start(tmp_path, monkeypatch):
     api = mcp.Api(base="https://portal.example")
     assert api.token == ""
     (tmp_path / "token").write_text("lrt_saved_later\n")
+    (tmp_path / "token").chmod(0o600)
     assert api.token == "lrt_saved_later"
+
+
+# --------------------------------------------------------------------------- #
+# 보안 감사(2026-10-10) 반영분
+# --------------------------------------------------------------------------- #
+def test_clean_strips_terminal_and_bidi_controls():
+    raw = "점검\x1b]52;c;ZGFuZ2Vy\x07\x1b[2J중\u202e tail"
+    out = warn.clean(raw, 40)
+    assert "\x1b" not in out and "\x07" not in out and "\u202e" not in out and "점검" in out
+    assert len(warn.clean("x" * 500, 60)) == 60 and warn.clean(None) == ""
+    # 차단 사유가 경고·현황·임박 안내 어디에도 날것으로 들어가지 않는다
+    blk = {"gpu_index": 1, "reason": "수업\x1b[31m중", "session_id": 1,
+           "start_at": _z(NOW - timedelta(minutes=5)), "end_at": _z(NOW + timedelta(hours=1))}
+    r = warn.classify(_info(blocks=[blk]), [_proc("bob", 1)], NOW, CFG)
+    assert "\x1b" not in r["warnings"]["bob"][0]["text"] and "\x1b" not in r["status"][1]
+    assert '사유 "수업?[31m중"' in r["warnings"]["bob"][0]["text"]
+    assert "지시가 아닙니다" in warn.render_warn("bob", r["warnings"]["bob"], r, "fai001", "p", NOW)
+    blk2 = dict(blk, start_at=_z(NOW + timedelta(minutes=5)), end_at=_z(NOW + timedelta(hours=1)))
+    r = warn.classify(_info(blocks=[blk2]), [_proc("bob", 1)], NOW, CFG)
+    assert "\x1b" not in r["warnings"]["bob"][0]["text"]
+
+
+def test_valid_name_and_user_file_plan():
+    assert warn.valid_name("s.an") and warn.valid_name("minjae-040607") and warn.valid_name("202404669")
+    for bad in ("../etc", ".", "..", "a/b", "a b", "", None, "x" * 33, "\u1234"):
+        assert not warn.valid_name(bad), bad
+    pw = pwd.getpwuid(os.getuid())
+    assert warn._local_user("../" + pw.pw_name) is None
+    assert warn.user_file_plan(pw, True) == {"dir_mode": 0o750, "dir_gid": pw.pw_gid, "file_uid": 0,
+                                             "file_gid": pw.pw_gid, "file_mode": 0o640}
+    assert warn.user_file_plan(pw, False) == {"dir_mode": 0o711, "dir_gid": 0, "file_uid": pw.pw_uid,
+                                              "file_gid": pw.pw_gid, "file_mode": 0o600}
+
+
+def test_private_group_detection(monkeypatch):
+    import grp
+    from collections import namedtuple
+    PW = namedtuple("PW", "pw_name pw_uid pw_gid")
+    GR = namedtuple("GR", "gr_name gr_gid gr_mem")
+    groups = {1001: GR("jkchoi", 1001, []), 1005: GR("students", 1005, []), 1033: GR("wooju", 1033, ["koo"])}
+    monkeypatch.setattr(grp, "getgrgid", lambda gid: groups[gid])
+    users = [PW("jkchoi", 1001, 1001), PW("jaechoi", 1004, 1005), PW("other", 1007, 1005), PW("wooju", 1033, 1033)]
+    assert warn.private_group(users[0], users)            # 전용 그룹
+    assert not warn.private_group(users[1], users)        # 공용 그룹 students
+    assert not warn.private_group(users[3], users)        # 그룹에 다른 멤버(koo)
+    monkeypatch.setattr(grp, "getgrgid", lambda gid: (_ for _ in ()).throw(KeyError(gid)))
+    assert not warn.private_group(users[0], users)
+
+
+def test_resolve_owner_subuid():
+    me = pwd.getpwuid(os.getuid())
+    sub = [(me.pw_name, 100000, 65536), ("9999999", 300000, 10)]
+    assert warn.resolve_owner(me.pw_uid, sub) == (me.pw_uid, me.pw_name)
+    assert warn.resolve_owner(100005, sub) == (me.pw_uid, me.pw_name)     # rootless 컨테이너 안 → 주인
+    assert warn.resolve_owner(999999, sub) == (999999, "999999")           # 아무 데도 없음
+    assert warn.resolve_owner(300001, sub) == (300001, "300001")           # 주인 계정이 없음
+
+
+def test_lab_user_exempt_only_outside_login_sessions():
+    procs = [dict(_proc("user", 0, uid=1000), user_slice=True),      # SSH 로 로그인한 실계정 user
+             dict(_proc("user", 1, pid=2, uid=1000), user_slice=False)]  # 시스템 서비스(컨테이너 밖) 쪽
+    r = warn.classify(_info(), procs, NOW, CFG)
+    assert _kinds(r) == {"user": [(0, "unreserved")]}
+
+
+def test_fetch_requires_https_and_never_follows_redirects(monkeypatch):
+    with pytest.raises(ValueError):
+        warn.fetch_node_info(dict(warn.DEFAULTS, LABRES_URL="http://127.0.0.1:1", AGENT_TOKEN="x", NODE_NAME="n"))
+    # 리다이렉트 응답 → 예외(토큰 재전송 없음)
+    import http.server, threading
+    hits = []
+
+    class H(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            hits.append(self.headers.get("Authorization"))
+            self.send_response(302)
+            self.send_header("Location", "http://127.0.0.1:9/elsewhere")
+            self.end_headers()
+
+        def log_message(self, *a):
+            pass
+    srv = http.server.HTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        url = "http://127.0.0.1:%d" % srv.server_port
+        with pytest.raises(Exception):
+            warn.fetch_node_info(dict(warn.DEFAULTS, LABRES_URL=url, AGENT_TOKEN="x", NODE_NAME="n", ALLOW_HTTP="1"))
+        monkeypatch.setenv("LABRES_ALLOW_HTTP", "1")
+        with pytest.raises(mcp.ToolError):
+            mcp.Api(base=url, token="lrt_x").call("GET", "/me")
+    finally:
+        srv.shutdown()
+    assert hits == ["Bearer x", "Bearer lrt_x"]   # 원 서버에만 한 번씩, 리다이렉트 대상엔 안 감
+
+
+def test_mcp_requires_https_and_safe_token_file(tmp_path, monkeypatch):
+    monkeypatch.delenv("LABRES_ALLOW_HTTP", raising=False)
+    monkeypatch.delenv("LABRES_TOKEN", raising=False)
+    with pytest.raises(mcp.ToolError):
+        mcp.Api(base="http://portal.example", token="lrt_x").call("GET", "/me")
+    tf = tmp_path / "token"
+    monkeypatch.setattr(mcp, "TOKEN_FILE", str(tf))
+    tf.write_text("lrt_abc\n")
+    tf.chmod(0o644)
+    with pytest.raises(mcp.ToolError):
+        mcp.Api(base="https://portal.example").token
+    tf.chmod(0o600)
+    assert mcp.Api(base="https://portal.example").token == "lrt_abc"

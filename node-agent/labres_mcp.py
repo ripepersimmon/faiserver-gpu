@@ -34,12 +34,12 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta, timezone
 
-VERSION = "1.0.1"
+VERSION = "1.0.2"
 KST = timezone(timedelta(hours=9))
 DEFAULT_URL = "https://faiserver.hufs.ac.kr"
 TOKEN_FILE = os.path.expanduser("~/.config/labres/token")
 NODE_FILE = "/etc/labres/node"           # install.sh 가 노드 이름을 적어 둔다(644)
-WARN_DIR = "/run/labres-gpu-warn/user"   # labres-gpu-warn 이 쓰는 사용자별 경고
+WARN_DIR = "/run/labres-gpu-warn/user"   # labres-gpu-warn 이 쓰는 사용자별 경고(<user>/warn)
 SUPPORTED_PROTOCOLS = ("2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05")
 
 INSTRUCTIONS = (
@@ -131,14 +131,29 @@ def window(start: str | None, end: str | None, hours) -> tuple:
 # 예약 웹앱 API
 # --------------------------------------------------------------------------- #
 def read_token() -> str:
+    """토큰: LABRES_TOKEN 환경변수 > ~/.config/labres/token. 파일이 본인 소유·0600 이 아니면 쓰지 않는다
+    (손으로 저장하다 umask 를 빠뜨려 남이 읽을 수 있는 파일이 되는 사고 방지)."""
     tok = os.environ.get("LABRES_TOKEN", "").strip()
     if tok:
         return tok
     try:
+        st = os.stat(TOKEN_FILE)
+        if st.st_uid != os.getuid() or st.st_mode & 0o077:
+            raise ToolError("토큰 파일 %s 의 권한이 안전하지 않습니다(본인 소유·600 이어야 함): "
+                            "chmod 600 %s" % (TOKEN_FILE, TOKEN_FILE))
         with open(TOKEN_FILE, encoding="utf-8") as f:
             return f.read().strip()
     except OSError:
         return ""
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """리다이렉트를 따라가면 urllib 이 Authorization 을 새 호스트(http 포함)에도 보낸다 → 오류로 취급."""
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+_OPENER = urllib.request.build_opener(_NoRedirect)
 
 
 class Api:
@@ -152,6 +167,8 @@ class Api:
         return self._token if self._token is not None else read_token()
 
     def call(self, method: str, path: str, body=None, query: dict | None = None):
+        if not self.base.startswith("https://") and os.environ.get("LABRES_ALLOW_HTTP") != "1":
+            raise ToolError("LABRES_URL 은 https:// 여야 합니다(토큰이 평문으로 나갑니다). 시험용이면 LABRES_ALLOW_HTTP=1")
         token = self.token
         if not token:
             raise ToolError(
@@ -170,7 +187,7 @@ class Api:
             "User-Agent": "labres-mcp/" + VERSION,
         })
         try:
-            with urllib.request.urlopen(req, timeout=20) as r:
+            with _OPENER.open(req, timeout=20) as r:
                 return json.loads(r.read().decode("utf-8") or "null")
         except urllib.error.HTTPError as e:
             try:
@@ -256,7 +273,7 @@ def my_gpu_procs() -> list | None:
 
 def node_warning() -> str | None:
     """labres-gpu-warn 이 이 사용자에게 남긴 경고(3분 이내 것만)."""
-    path = os.path.join(WARN_DIR, pwd.getpwuid(os.getuid()).pw_name + ".warn")
+    path = os.path.join(WARN_DIR, pwd.getpwuid(os.getuid()).pw_name, "warn")
     try:
         if now_utc().timestamp() - os.stat(path).st_mtime > 180:
             return None
@@ -593,7 +610,11 @@ def save_token() -> int:
         print("토큰 형식이 아닙니다(lrt_ 로 시작). 포털 /tokens 에서 발급한 값을 붙여넣으세요.", file=sys.stderr)
         return 1
     os.makedirs(os.path.dirname(TOKEN_FILE), mode=0o700, exist_ok=True)
-    fd = os.open(TOKEN_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        os.unlink(TOKEN_FILE)   # 기존 파일(심볼릭 링크일 수도)은 지우고 새로 만든다
+    except OSError:
+        pass
+    fd = os.open(TOKEN_FILE, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
     with os.fdopen(fd, "w") as f:
         f.write(tok + "\n")
     os.chmod(TOKEN_FILE, 0o600)

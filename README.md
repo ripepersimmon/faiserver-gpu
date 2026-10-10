@@ -55,9 +55,13 @@ command = "labres-mcp"
 
 ```bash
 git clone https://github.com/ripepersimmon/faiserver-gpu.git
-sudo bash faiserver-gpu/node-agent/install.sh          # 예약 웹앱의 NODE_AGENT_TOKEN 을 숨김 입력으로 묻습니다
+cd faiserver-gpu && git -c advice.detachedHead=false checkout v1.0.2   # 검토된 태그를 고정해서 설치 (main 을 그대로 쓰지 않음)
+sudo bash node-agent/install.sh          # 예약 웹앱의 NODE_AGENT_TOKEN 을 숨김 입력으로 묻습니다
 # 호스트명이 예약 시스템 서버 이름과 다르면: sudo NODE_NAME=<서버이름> bash ...
 ```
+
+root 로 실행되는 코드이므로 `install.sh` 는 번들이 root 또는 sudo 를 실행한 관리자 소유이고 남이 쓸 수 없는 파일뿐일 때만,
+인터프리터가 root 소유 `/usr/bin/python3` 일 때만 진행합니다. 설치 끝에 샌드박스가 적용된 systemd 서비스로 한 번 실제 실행해 확인합니다.
 
 설치되는 것:
 
@@ -70,10 +74,18 @@ sudo bash faiserver-gpu/node-agent/install.sh          # 예약 웹앱의 NODE_A
 | `labres-mcp`, `labres-check` | 사용자용 MCP 서버·점검 명령 |
 
 경고 대상은 그 GPU 에 256MiB 이상 올렸거나 GPU 사용률 5% 이상인 사용자입니다. 경고 내용은 본인만 볼 수 있고
-(터미널·`0600` 파일), 다른 사용자에겐 이름 없는 현황(`GPU2 예약 없음 · 사용 중`)만 보입니다.
-서버 응답이나 `nvidia-smi` 를 읽지 못하면 경고하지 않으며, 프로세스를 종료하지 않습니다.
+(터미널 · `/run/labres-gpu-warn/user/<본인>/warn`), 다른 사용자에겐 이름 없는 현황(`GPU2 예약 없음 · 사용 중`)만 보입니다.
+사용자 디렉터리는 모든 사람 계정에 미리 만들어 두어 디렉터리 존재로 누가 경고 중인지 알 수 없고, 계정이 개인 전용 그룹이면
+남이 `stat` 조차 할 수 없게 둡니다(공용 그룹 계정은 파일 존재 여부만 보임).
+서버에서 온 사유·프로세스 이름은 제어문자를 지운 뒤에만 터미널·에이전트에 보여 주고, 서버 응답이나 `nvidia-smi` 를
+읽지 못하면 경고하지 않으며, 프로세스를 종료하지 않습니다. 웹앱 주소는 https 만 허용하고 리다이렉트를 따라가지 않습니다(토큰 보호).
 
 이 저장소에는 예약 웹앱 자체는 들어 있지 않습니다. 에이전트는 웹앱의 `/agent/node/<node>`, MCP 는 개인 토큰용 예약 API 를 사용합니다.
+
+## 보안 메모
+
+- 토큰은 `~/.config/labres/token` 이 본인 소유·`600` 일 때만 읽습니다. `labres-mcp --save-token` 이 그렇게 만듭니다.
+- 이 저장소의 코드가 노드에서 root 로 돌므로 GitHub 계정에 2단계 인증과 `main` 브랜치 보호를 켜 두고, 노드에는 태그를 고정해 설치하세요.
 
 ## 개발
 

@@ -2,7 +2,7 @@
 """labres-agent-hook — Claude Code 훅: GPU 예약 경고를 코딩 에이전트 컨텍스트에 넣는다.
 
 /etc/claude-code/managed-settings.json(install.sh 가 병합)에서 이 노드의 모든 사용자 세션에 걸린다.
-labres-gpu-warn(root 타이머)이 1분마다 쓰는 /run/labres-gpu-warn/user/<나>.warn·.info 를 읽을 뿐이라
+labres-gpu-warn(root 타이머)이 1분마다 쓰는 /run/labres-gpu-warn/user/<나>/warn·info 를 읽을 뿐이라
 빠르고, 어떤 오류에도 조용히 exit 0 한다(훅 실패로 사용자 작업을 막지 않는다).
 
   labres-agent-hook SessionStart      경고 + 이 노드의 내 예약 요약 (stdout → 컨텍스트)
@@ -66,9 +66,9 @@ def main(argv):
     except ValueError:
         payload = {}
     user = pwd.getpwuid(os.getuid()).pw_name
-    warn = _read_fresh(os.path.join(USER_DIR, user + ".warn"))
+    warn = _read_fresh(os.path.join(USER_DIR, user, "warn"))
     if event == "SessionStart":
-        info = _read_fresh(os.path.join(USER_DIR, user + ".info"))
+        info = _read_fresh(os.path.join(USER_DIR, user, "info"))
         parts = [p for p in (warn, info) if p]
         if parts:
             print("\n\n".join(parts))

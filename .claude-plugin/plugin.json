@@ -1,6 +1,6 @@
 {
   "name": "faiserver-gpu",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "HUFS Finance & AI GPU 서버 예약(faiserver.hufs.ac.kr)을 Claude Code 에서 — 내 예약 조회, 내 GPU 사용 점검, 빈 GPU 찾기, 예약·연장·반납",
   "author": { "name": "ripepersimmon" },
   "homepage": "https://github.com/ripepersimmon/faiserver-gpu",

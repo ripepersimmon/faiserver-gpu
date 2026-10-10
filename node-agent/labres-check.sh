@@ -9,9 +9,9 @@ if ! fresh "$d/status.txt"; then
   exit 2
 fi
 cat "$d/status.txt"
-fresh "$d/user/$u.info" && cat "$d/user/$u.info"
-if fresh "$d/user/$u.warn"; then
-  cat "$d/user/$u.warn"
+fresh "$d/user/$u/info" && cat "$d/user/$u/info"
+if fresh "$d/user/$u/warn"; then
+  cat "$d/user/$u/warn"
   exit 1
 fi
 echo "✓ 내 GPU 사용에 대한 경고 없음"

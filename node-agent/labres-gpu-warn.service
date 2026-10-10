@@ -8,3 +8,16 @@ Type=oneshot
 ExecStart=/usr/local/bin/labres-gpu-warn
 TimeoutStartSec=50
 Nice=10
+# root 로 돌지만 손댈 곳은 정해져 있다: /run/labres-gpu-warn(현황·경고), /var/lib/labres-gpu-warn(재알림 상태),
+# 사용자 tty(/dev/pts — PrivateDevices 를 켜지 않는 이유), nvidia 장치. 나머지 파일시스템은 읽기 전용.
+RuntimeDirectory=labres-gpu-warn
+RuntimeDirectoryPreserve=yes
+StateDirectory=labres-gpu-warn
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+NoNewPrivileges=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
