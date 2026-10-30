@@ -44,7 +44,7 @@ command = "labres-mcp"
 | `get_my_reservations` | 진행 중·예정 예약 목록(id·서버·GPU·시간·수업 배정 여부) |
 | `find_available_gpus` | 시간대(기본 지금부터 1시간)에 예약 가능한 GPU |
 | `reserve_gpu` | 예약. 같은 시간대에 내 예약이 있으면 만들지 않음. GPU 생략 시 빈 GPU 자동 선택 |
-| `extend_reservation` / `release_reservation` | 연장 / 반납(되돌릴 수 없음) |
+| `extend_reservation` / `release_reservation` | 연장 / 반납(되돌릴 수 없음, `gpu_indices` 로 일부 GPU 만 반납 가능) |
 
 시각 입력은 `now`, `14:30`(오늘 KST), `2026-10-11 09:00`(KST), ISO8601 을 받습니다.
 예약한 GPU 로 실행할 때는 `CUDA_DEVICE_ORDER=PCI_BUS_ID CUDA_VISIBLE_DEVICES=<번호>` 를 함께 지정하세요.

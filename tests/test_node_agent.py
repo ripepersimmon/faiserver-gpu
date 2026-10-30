@@ -250,6 +250,7 @@ class FakeApi(mcp.Api):
     def __init__(self, mine=(), reservations=(), blocks=()):
         super().__init__(base="https://portal.example", token="lrt_x")
         self.mine, self.reservations, self.blocks, self.posted = list(mine), list(reservations), list(blocks), []
+        self.stopped = []
 
     def call(self, method, path, body=None, query=None):
         if path == "/me":
@@ -264,6 +265,9 @@ class FakeApi(mcp.Api):
         if path == "/reserve":
             self.posted.append(body)
             return {"ids": [11], "count": 1}
+        if path.startswith("/reservations/") and path.endswith("/stop"):
+            self.stopped.append((path, query))
+            return {"stopped": True}
         raise AssertionError(path)
 
 
@@ -520,3 +524,24 @@ def test_mcp_requires_https_and_safe_token_file(tmp_path, monkeypatch):
         mcp.Api(base="https://portal.example").token
     tf.chmod(0o600)
     assert mcp.Api(base="https://portal.example").token == "lrt_abc"
+
+
+def test_mcp_release_some_gpus_of_session(monkeypatch):
+    """gpu_indices 를 주면 그 GPU 의 행만 ?only=1 로 반납하고, 세션 전체를 고르면 일반 반납."""
+    monkeypatch.setattr(mcp, "now_utc", lambda: NOW)
+    mine = [dict(_res("rita", g, -30, 60), id=20 + g, node="fai001", purpose=None) for g in (2, 3)]
+    api = FakeApi(mine=mine)
+    out = _rpc(api, "tools/call", {"name": "release_reservation",
+                                   "arguments": {"reservation_id": 22, "gpu_indices": [3]}})["result"]
+    assert not out["isError"] and "GPU 2 는 그대로" in out["content"][0]["text"]
+    assert api.stopped == [("/reservations/23/stop", {"only": "1"})]
+    bad = _rpc(api, "tools/call", {"name": "release_reservation",
+                                   "arguments": {"reservation_id": 22, "gpu_indices": [0]}})["result"]
+    assert bad["isError"] and "없는 GPU: 0" in bad["content"][0]["text"]
+    for bad_arg in ([], "23"):   # 빈 목록·문자열이 세션 전체 반납이나 GPU {2,3} 으로 새지 않게
+        out = _rpc(api, "tools/call", {"name": "release_reservation",
+                                       "arguments": {"reservation_id": 22, "gpu_indices": bad_arg}})["result"]
+        assert out["isError"]
+    api.stopped.clear()
+    _rpc(api, "tools/call", {"name": "release_reservation", "arguments": {"reservation_id": 22, "gpu_indices": [2, 3]}})
+    assert api.stopped == [("/reservations/22/stop", None)]

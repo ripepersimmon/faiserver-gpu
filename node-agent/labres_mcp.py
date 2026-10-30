@@ -317,7 +317,7 @@ def tool_get_my_reservations(api: Api, args: dict) -> str:
     if not rows:
         return head + "\n살아 있는 예약이 없습니다."
     return head + "\n" + "\n".join(_fmt_session(g, now) for g in _group(rows)) + \
-        "\n(연장·반납은 id 로 — 멀티 GPU 예약은 세션 전체에 적용)"
+        "\n(연장·반납은 id 로 — 멀티 GPU 예약은 세션 전체에 적용. 반납은 gpu_indices 로 일부 GPU 만 가능)"
 
 
 def _free_gpus(nodes: list, avail: dict, s: datetime, e: datetime, node: str | None) -> tuple:
@@ -454,6 +454,32 @@ def tool_extend_reservation(api: Api, args: dict) -> str:
 
 def tool_release_reservation(api: Api, args: dict) -> str:
     rid = int(args["reservation_id"])
+    only = args.get("gpu_indices")
+    if only is not None:
+        if not isinstance(only, list) or not only:
+            raise ToolError("gpu_indices 는 GPU 번호 목록이어야 합니다(예: [3]). 세션 전체 반납이면 생략하세요.")
+        only = sorted({int(x) for x in only})
+        # 멀티 GPU 세션에서 일부 GPU 만: 그 GPU 의 예약 행 id 로 ?only=1 반납(나머지 GPU 는 그대로).
+        rows = api.call("GET", "/my/reservations").get("reservations") or []
+        g = next((g for g in _group(rows) if rid in g["ids"]), None)
+        if g is None:
+            raise ToolError("내 살아 있는 예약에서 id %d 를 찾지 못했습니다. get_my_reservations 로 확인하세요." % rid)
+        by_gpu = dict(zip(g["gpus"], g["ids"]))
+        miss = [x for x in only if x not in by_gpu]
+        if miss:
+            raise ToolError("예약 %d 세션에 없는 GPU: %s (이 세션: GPU %s)" % (
+                rid, ",".join(map(str, miss)), ",".join(map(str, sorted(by_gpu)))))
+        if len(only) < len(by_gpu):
+            done = []
+            for x in only:
+                try:
+                    api.call("POST", "/reservations/%d/stop" % by_gpu[x], query={"only": "1"})
+                except ToolError as e:
+                    raise ToolError("GPU %d 반납 실패: %s (이미 반납: %s)" % (
+                        x, e, ",".join(map(str, done)) or "없음")) from e
+                done.append(x)
+            return "GPU %s 만 반납했습니다(예약 %d 세션). GPU %s 는 그대로 남습니다." % (
+                ",".join(map(str, only)), rid, ",".join(str(x) for x in sorted(by_gpu) if x not in only))
     api.call("POST", "/reservations/%d/stop" % rid)
     return "반납했습니다: 예약 %d (같은 세션의 GPU 전체). 실행 중인 JupyterLab 세션은 1분 안에 정리됩니다." % rid
 
@@ -520,9 +546,12 @@ TOOLS = [
     },
     {
         "name": "release_reservation",
-        "description": "내 예약을 반납(종료·취소)한다. 같은 세션의 GPU 전체가 반납되고 되돌릴 수 없다. 사용자 확인 후 호출할 것.",
+        "description": "내 예약을 반납(종료·취소)한다. gpu_indices 를 생략하면 같은 세션의 GPU 전체, 주면 그 GPU 만 "
+                       "반납하고 나머지는 그대로 둔다. 되돌릴 수 없다. 사용자 확인 후 호출할 것.",
         "inputSchema": {"type": "object", "required": ["reservation_id"], "properties": {
             "reservation_id": {"type": "integer", "description": "get_my_reservations 의 id"},
+            "gpu_indices": {"type": "array", "items": {"type": "integer", "minimum": 0},
+                            "description": "이 GPU 들만 반납(예: [3]). 생략하면 세션 전체"},
         }},
         "annotations": {"title": "예약 반납", "readOnlyHint": False, "destructiveHint": True},
         "fn": tool_release_reservation,

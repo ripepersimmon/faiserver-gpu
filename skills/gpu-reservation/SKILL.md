@@ -24,6 +24,7 @@ description: HUFS Finance & AI GPU 서버(faiserver.hufs.ac.kr 예약제) 에서
 ## 규칙
 
 - 예약·연장(`extend_reservation`)·반납(`release_reservation`)은 사용자에게 시간·GPU 를 확인받은 뒤에만 한다. 반납은 되돌릴 수 없다.
+  멀티 GPU 예약에서 일부만 비우려면 `release_reservation` 에 `gpu_indices`(예: `[3]`)를 준다 — 나머지 GPU 는 그대로 남는다.
 - `[GPU 예약 경고]` 가 보이면 사용자에게 그대로 전달하고, 해결 전에는 새 GPU 작업을 시작하지 않는다.
   실행 중인 작업을 임의로 종료하지 말고 사용자에게 먼저 묻는다.
 - 수업 배정 예약(수업 배정 표시)은 학생이 연장·반납할 수 없다 — 담당 교수에게 문의하도록 안내한다.
