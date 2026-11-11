@@ -18,6 +18,8 @@
 #   /etc/profile.d/labres-gpu.sh       로그인 배너 + 로그인 셸(Codex bash -lc) 경고
 #   /etc/claude-code/managed-settings.json  훅 3개 병합(기존 설정 보존, 첫 수정 전 .orig-날짜 백업)
 #   /etc/claude-code/CLAUDE.md         '<!-- labres:begin/end -->' 사이 예약 규칙 블록만 관리
+#   /data/models/{hf/hub,local}        공유 모델 폴더(GUIDELINES.md §2) — 누구나 받고 함께 읽음(받은 사람만 수정). 제거 때도 남김
+#   /etc/profile.d/labres-models.sh    로그인 셸의 HF_HUB_CACHE 기본값 → /data/models/hf/hub
 set -euo pipefail
 
 [ "$(id -u)" -eq 0 ] || { echo "root 로 실행하세요: sudo bash $0" >&2; exit 1; }
@@ -146,10 +148,11 @@ if [ "${1:-}" = "--uninstall" ]; then
   rm -f /etc/systemd/system/labres-gpu-warn.service /etc/systemd/system/labres-gpu-warn.timer
   systemctl daemon-reload
   rm -f "$BIN/labres-gpu-warn" "$BIN/labres-mcp" "$BIN/labres-agent-hook" "$BIN/labres-check" \
-        /etc/profile.d/labres-gpu.sh "$ETC/node"
+        /etc/profile.d/labres-gpu.sh /etc/profile.d/labres-models.sh "$ETC/node"
   rm -rf /run/labres-gpu-warn /var/lib/labres-gpu-warn
   claude_code_merge uninstall
   echo "제거했습니다. 토큰이 든 $CONF 는 남겨 두었습니다(완전 삭제: rm -r $ETC)."
+  echo "공유 모델 폴더 /data/models 는 사용자들이 받은 모델이 있어 남겨 두었습니다."
   exit 0
 fi
 
@@ -198,6 +201,52 @@ rm -rf /run/labres-gpu-warn/user   # 구버전(1.0.x) 평면 배치 정리 — �
 # 4) 로그인 배너 + 로그인 셸 경고, 5) Claude Code 훅·규칙
 install -m 644 "$HERE/labres-gpu.profile.sh" /etc/profile.d/labres-gpu.sh
 claude_code_merge install
+
+# 6) 공유 모델 폴더(GUIDELINES.md §2) — 노드 로컬 디스크. 받은 모델은 건드리지 않고 폴더 권한만 맞춘다.
+#    hub·local 은 /tmp 처럼 누구나 새 모델 폴더를 만들 수 있게(1777) 하되, 각자 받은 모델은 받은 사람만 고칠 수 있다
+#    (sticky + 각자의 umask). 기본 ACL 로 하위까지 모두가 쓰게 하면 남이 받은 모델의 가중치·코드를 바꿔 그 모델을
+#    불러오는 다른 사용자 계정에서 코드를 실행시킬 수 있고, umask 077 인 사람의 비공개 모델까지 공개된다 — 걸지 않는다.
+#    .locks 는 root 소유 1777 로 미리 만든다(첫 사용자 소유가 되면 그 사람이 다른 사람의 다운로드를 전부 막을 수 있다).
+#    root 가 chown·chmod 하므로 경로의 상위가 전부 root 소유·그룹/타인 쓰기 불가일 때만 진행한다(링크 끼워넣기 방지).
+MODELS=/data/models
+safe_parent() {   # 없거나: 링크 아닌 디렉터리 + root 소유 + 그룹/타인 쓰기 불가
+  { [ ! -e "$1" ] && [ ! -L "$1" ]; } && return 0
+  [ ! -L "$1" ] && [ -d "$1" ] && [ "$(stat -c %u "$1")" -eq 0 ] && [ -z "$(find "$1" -maxdepth 0 -perm /022)" ]
+}
+models_ok=1
+for p in / /data "$MODELS" "$MODELS/hf"; do
+  if ! safe_parent "$p"; then
+    echo "⚠ $p 가 root 소유·그룹/타인 쓰기 불가 디렉터리가 아닙니다 — 공유 모델 폴더 설정을 건너뜁니다." >&2
+    models_ok=0; break
+  fi
+done
+for p in "$MODELS/hf/hub" "$MODELS/local"; do
+  if [ "$models_ok" = 1 ] && { [ -L "$p" ] || { [ -e "$p" ] && [ ! -d "$p" ]; }; }; then
+    echo "⚠ $p 가 디렉터리가 아니거나 링크입니다 — 공유 모델 폴더 설정을 건너뜁니다." >&2; models_ok=0
+  fi
+done
+if [ "$models_ok" = 1 ]; then
+  install -d -o root -g root -m 755 "$MODELS" "$MODELS/hf"
+  install -d -o root -g root -m 1777 "$MODELS/hf/hub" "$MODELS/local"
+  # .locks 는 누구나 쓰는 hub 안에 있다 — 검사와 생성 사이에 링크를 끼워 넣을 수 있으므로 fd 로 다룬다(O_NOFOLLOW).
+  "$PY" - "$MODELS/hf/hub" <<'PY' || echo "⚠ $MODELS/hf/hub/.locks 설정 실패 — 링크·파일이면 지우고 다시 실행하세요." >&2
+import os, sys
+hub = os.open(sys.argv[1], os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+try:
+    os.mkdir(".locks", 0o700, dir_fd=hub)
+except FileExistsError:
+    pass
+fd = os.open(".locks", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=hub)   # 링크·파일이면 여기서 실패
+os.fchown(fd, 0, 0)
+os.fchmod(fd, 0o1777)
+PY
+  # 배포 전 초안이 걸었을 수 있는 기본 ACL 을 지운다(-P: 링크는 따라가지 않음) — 각자의 umask 가 다시 적용되게
+  if command -v setfacl >/dev/null 2>&1; then
+    setfacl -P -k "$MODELS/hf/hub" "$MODELS/local" 2>/dev/null || true
+  fi
+  install -m 644 "$HERE/labres-models.profile.sh" /etc/profile.d/labres-models.sh
+  echo "공유 모델 폴더: $MODELS/hf/hub (HF_HUB_CACHE 기본값), $MODELS/local — 여유 $(df -Ph "$MODELS" | awk 'NR==2{print $4}')"
+fi
 
 echo "설치 완료 — 서버 이름: $NODE"
 echo "--- 점검(판정만, 터미널·파일 쓰기 없음) ---"

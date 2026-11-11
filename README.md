@@ -5,7 +5,10 @@ HUFS Finance & AI 융합학부 GPU 서버 예약 시스템([faiserver.hufs.ac.kr
 
 - **MCP 서버 `labres`**: 내 예약 조회, 이 서버에서 내 GPU 사용이 예약과 맞는지 점검, 빈 GPU 찾기, 예약·연장·반납
 - **스킬 `gpu-reservation`**: GPU 작업 전에 예약을 확인하고, 없으면 사용자 확인을 받아 예약하는 규칙
+- **스킬 `server-guidelines`**: 모델은 노드 공유 폴더(`/data/models`)에서 받고 함께 쓰기, 홈에 모델·체크포인트 쌓지 않기([서버 사용 지침](GUIDELINES.md) 요약)
 - **노드 경고 에이전트**(관리자용): 예약 없이·남의 예약 GPU 를 쓰면 그 사용자의 터미널과 코딩 에이전트에 경고
+
+서버를 쓰기 전에 **[서버 사용 지침](GUIDELINES.md)** 을 읽어 주세요 — GPU 예약, 모델은 공유 폴더(`/data/models`)에서 받기, 저장공간 아끼기.
 
 ## 학생·연구원: Claude Code 플러그인 설치
 

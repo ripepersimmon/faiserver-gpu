@@ -545,3 +545,58 @@ def test_mcp_release_some_gpus_of_session(monkeypatch):
     api.stopped.clear()
     _rpc(api, "tools/call", {"name": "release_reservation", "arguments": {"reservation_id": 22, "gpu_indices": [2, 3]}})
     assert api.stopped == [("/reservations/22/stop", None)]
+
+
+# --------------------------------------------------------------------------- #
+# 공유 모델 폴더 (labres-models.profile.sh, CLAUDE.md.block)
+# --------------------------------------------------------------------------- #
+def _models_profile(tmp_path, hub):
+    src = open(os.path.join(HERE, "labres-models.profile.sh"), encoding="utf-8").read()
+    assert "_labres_hub=/data/models/hf/hub\n" in src
+    p = tmp_path / "models.sh"
+    src = src.replace("_labres_hub=/data/models/hf/hub", "_labres_hub=%s" % hub)
+    # 운영에선 root 소유여야 기본값을 잡는다 — 테스트는 내가 만든 폴더라 내 uid 로 바꿔 본다
+    assert '= "0" ]; then' in src
+    p.write_text(src.replace('= "0" ]; then', '= "%d" ]; then' % os.getuid()), encoding="utf-8")
+    return str(p)
+
+
+@pytest.mark.parametrize("preset, expect", [
+    ({}, "HUB"),                                         # 아무것도 안 정했으면 공유 캐시
+    ({"HF_HUB_CACHE": "/mine"}, "/mine"),                # 본인 설정은 덮지 않는다
+    ({"HF_HOME": "/home/x/hf"}, ""),                     # HF_HOME 을 정했으면 그 아래 hub 를 쓰게 둔다
+    ({"TRANSFORMERS_CACHE": "/old"}, ""),
+])
+def test_models_profile_sets_hub_cache_only_by_default(tmp_path, preset, expect):
+    import subprocess
+    hub = tmp_path / "hub"
+    hub.mkdir()
+    os.chmod(hub, 0o1777)
+    env = {"PATH": "/usr/bin:/bin", **preset}
+    out = subprocess.run(["sh", "-c", '. "$0"; printf %s "${HF_HUB_CACHE:-}"; printf "|%s" "${_labres_hub:-}"',
+                          _models_profile(tmp_path, hub)], env=env, capture_output=True, text=True, check=True)
+    got, leaked = out.stdout.split("|")
+    assert got == (str(hub) if expect == "HUB" else expect)
+    assert leaked == ""                                  # 임시 변수는 남기지 않는다
+    assert "HF_HOME" not in open(_models_profile(tmp_path, hub)).read().split("then", 1)[1]  # HF_HOME 은 절대 설정 안 함
+
+
+def test_models_profile_skips_missing_readonly_or_unsticky_dir(tmp_path):
+    import subprocess
+    ro = tmp_path / "ro"
+    ro.mkdir(mode=0o555)
+    plain = tmp_path / "plain"                           # sticky 아님 = install.sh 가 만든 폴더가 아님
+    plain.mkdir(mode=0o777)
+    os.chmod(plain, 0o777)
+    for hub in (tmp_path / "missing", ro, plain):
+        out = subprocess.run(["sh", "-c", '. "$0"; printf %s "${HF_HUB_CACHE:-}"', _models_profile(tmp_path, hub)],
+                             env={"PATH": "/usr/bin:/bin"}, capture_output=True, text=True, check=True)
+        if os.geteuid() != 0:                            # root 는 0555 에도 쓸 수 있다
+            assert out.stdout == "", hub
+
+
+def test_claude_block_has_model_rules_inside_markers():
+    text = open(os.path.join(HERE, "CLAUDE.md.block"), encoding="utf-8").read()
+    body = text.split("<!-- labres:begin", 1)[1].split("<!-- labres:end -->", 1)[0]
+    assert "/data/models/hf/hub" in body and "HF_HOME" in body
+    assert text.rstrip().endswith("<!-- labres:end -->")
